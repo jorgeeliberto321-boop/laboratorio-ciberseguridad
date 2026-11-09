@@ -1,0 +1,95 @@
+from flask import Flask, render_template,request 
+import sqlite3
+import re
+from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+
+app = Flask(__name__)
+def registrar_evento(mensaje):
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    with open("eventos.log", "a", encoding="utf-8") as archivo:
+        archivo.write(f"{fecha} - {mensaje}\n")
+
+def validar_usuario(usuario):
+    return re.fullmatch(r"[A-Za-z0-9_]{4,20}", usuario) is not None
+
+
+def validar_correo(correo):
+    return re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", correo) is not None
+
+
+def validar_password(password):
+    return len(password) >= 8
+
+
+@app.route("/")
+def inicio():
+    return "Mi laboratorio de ciberseguridad está funcionando"
+
+
+@app.route("/registro", methods=["GET", "POST"])
+def registro():
+    if request.method == "POST":
+        usuario = request.form["usuario"].strip()
+        correo = request.form["correo"].strip()
+        password = request.form["password"]
+
+        if not validar_usuario(usuario):
+            return "Error: el usuario debe tener entre 4 y 20 caracteres."
+
+        if not validar_correo(correo):
+            return "Error: ingresa un correo válido."
+
+        if not validar_password(password):
+            return "Error: la contraseña debe tener al menos 8 caracteres."
+
+        password_hash = generate_password_hash(password)
+
+        conexion = sqlite3.connect("usuarios.db")
+        cursor = conexion.cursor()
+
+        try:
+            cursor.execute(
+                "INSERT INTO usuarios (usuario, correo, password) VALUES (?, ?, ?)",
+                (usuario, correo, password_hash)
+            )
+            conexion.commit()
+        except sqlite3.IntegrityError:
+            conexion.close()
+            return "Error: el usuario o correo ya está registrado."
+
+        conexion.close()
+        return "Usuario registrado correctamente"
+
+    return render_template("registro.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        usuario = request.form["usuario"].strip()
+        password = request.form["password"]
+
+        conexion = sqlite3.connect("usuarios.db")
+        cursor = conexion.cursor()
+
+        cursor.execute(
+            "SELECT * FROM usuarios WHERE usuario = ?",
+            (usuario,)
+        )
+
+        resultado = cursor.fetchone()
+        conexion.close()
+
+        if resultado and check_password_hash(resultado[3], password):
+            registrar_evento(f"Inicio de sesión exitoso: {usuario}")
+            return "Inicio de sesión exitoso"
+
+        registrar_evento(f"Inicio de sesión fallido: {usuario}")
+        return "Usuario o contraseña incorrectos"
+
+    return render_template("login.html")
+
+if __name__ == "__main__":
+    app.run(debug=True)
